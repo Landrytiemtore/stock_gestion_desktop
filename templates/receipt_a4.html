@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Facture / Reçu A4 - {{ sale.sale_code }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 15mm 15mm 15mm 15mm;
+    }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      font-size: 13px;
+      color: #1e293b;
+      margin: 0;
+      padding: 20px;
+      background: #ffffff;
+    }
+    .invoice-box {
+      max-width: 800px;
+      margin: auto;
+      border: 1px solid #e2e8f0;
+      padding: 30px;
+      border-radius: 8px;
+    }
+    /* En-tête de page / Papier à en-tête */
+    .letterhead-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #714B67;
+      padding-bottom: 20px;
+      margin-bottom: 25px;
+    }
+    .letterhead-logo {
+      max-height: 70px;
+      max-width: 220px;
+      object-fit: contain;
+    }
+    .letterhead-company {
+      text-align: right;
+    }
+    .company-name {
+      font-size: 22px;
+      font-weight: 800;
+      color: #714B67;
+      margin: 0 0 4px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .company-details {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+
+    /* Informations de facturation */
+    .billing-info {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 25px;
+      gap: 20px;
+    }
+    .info-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 12px 16px;
+      flex: 1;
+    }
+    .info-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #714B67;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 4px;
+    }
+    .info-line {
+      font-size: 12.5px;
+      margin-bottom: 4px;
+    }
+    .info-line strong {
+      color: #0f172a;
+    }
+
+    /* Tableau des articles */
+    table.invoice-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 25px;
+    }
+    table.invoice-table th {
+      background-color: #714B67;
+      color: #ffffff;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    table.invoice-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 13px;
+    }
+    table.invoice-table tr:nth-child(even) td {
+      background-color: #fafbfc;
+    }
+
+    /* Totaux et Règlements */
+    .bottom-section {
+      display: flex;
+      justify-content: space-between;
+      gap: 30px;
+    }
+    .payment-summary {
+      flex: 1;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 14px;
+      font-size: 12.5px;
+    }
+    .totals-card {
+      width: 300px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 14px;
+      font-size: 13px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .total-row.grand-total {
+      background: #714B67;
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 800;
+      border-bottom: none;
+    }
+
+    /* Signature & Cachet */
+    .signature-section {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 40px;
+      padding-top: 20px;
+    }
+    .signature-box {
+      width: 220px;
+      text-align: center;
+      border-top: 1px dashed #94a3b8;
+      padding-top: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .invoice-footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 11px;
+      color: #64748b;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 15px;
+    }
+
+    .no-print {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .btn-print {
+      background: #714B67;
+      color: #ffffff;
+      border: none;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; }
+      .invoice-box { border: none; padding: 0; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    <button class="btn-print" onclick="window.print()">🖨️ Imprimer la Facture / Reçu A4</button>
+  </div>
+
+  <div class="invoice-box">
+    <!-- Papier à En-tête -->
+    <div class="letterhead-header">
+      <div>
+        {% if settings.company_logo %}
+        <img src="{{ settings.company_logo }}" class="letterhead-logo" alt="Logo">
+        {% else %}
+        <img src="/static/img/logo_default.svg" class="letterhead-logo" alt="Logo">
+        {% endif %}
+      </div>
+      <div class="letterhead-company">
+        <h1 class="company-name">{{ settings.company_name }}</h1>
+        <div class="company-details">
+          {% if settings.company_slogan %}<div><em>{{ settings.company_slogan }}</em></div>{% endif %}
+          {% if settings.company_address %}<div>{{ settings.company_address }}</div>{% endif %}
+          {% if settings.company_phone %}<div>Tél : {{ settings.company_phone }}</div>{% endif %}
+          {% if settings.company_nif_rccm %}<div>{{ settings.company_nif_rccm }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Informations Facture & Client -->
+    <div class="billing-info">
+      <div class="info-card">
+        <div class="info-card-title">DÉTAILS DU DOCUMENT</div>
+        <div class="info-line">RÉFÉRENCE : <strong>{{ sale.sale_code }}</strong></div>
+        <div class="info-line">DATE &amp; HEURE : <strong>{{ sale.created_at }}</strong></div>
+        <div class="info-line">STATUT : <strong style="color: #10b981;">PAYÉ &amp; ENCAISSÉ</strong></div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-title">CLIENT</div>
+        <div class="info-line">NOM : <strong>{{ sale.customer_name }}</strong></div>
+        {% if sale.customer_phone %}
+        <div class="info-line">CONTACT : <strong>{{ sale.customer_phone }}</strong></div>
+        {% endif %}
+        <div class="info-line">TYPE : <strong>Particulier / Professionnel</strong></div>
+      </div>
+    </div>
+
+    <!-- Tableau des articles -->
+    <table class="invoice-table">
+      <thead>
+        <tr>
+          <th style="width: 5%; text-align: center;">N°</th>
+          <th style="text-align: left;">Désignation de l'Article</th>
+          <th style="width: 20%; text-align: right;">Prix Unitaire</th>
+          <th style="width: 12%; text-align: center;">Qté</th>
+          <th style="width: 22%; text-align: right;">Total Ligne</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td style="text-align: center; color: #64748b;">{{ loop.index }}</td>
+          <td><strong>{{ item.product_name }}</strong></td>
+          <td style="text-align: right;">{{ "{:,.0f}".format(item.unit_price).replace(',', ' ') }} {{ settings.currency }}</td>
+          <td style="text-align: center; font-weight: bold;">{{ item.quantity }}</td>
+          <td style="text-align: right; font-weight: bold;">{{ "{:,.0f}".format(item.subtotal).replace(',', ' ') }} {{ settings.currency }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Totaux & Règlement -->
+    <div class="bottom-section">
+      <div class="payment-summary">
+        <div style="font-weight: 700; color: #714B67; margin-bottom: 8px;">MODALITÉS DE PAIEMENT</div>
+        <div style="margin-bottom: 4px;">Mode de règlement : <strong>{{ sale.payment_method }}</strong></div>
+        <div style="margin-bottom: 4px;">Montant encaissé : <strong>{{ "{:,.0f}".format(sale.amount_received).replace(',', ' ') }} {{ settings.currency }}</strong></div>
+        <div>Monnaie restituée : <strong>{{ "{:,.0f}".format(sale.change_returned).replace(',', ' ') }} {{ settings.currency }}</strong></div>
+      </div>
+
+      <div class="totals-card">
+        <div class="total-row">
+          <span>Sous-Total Brut :</span>
+          <span>{{ "{:,.0f}".format(sale.subtotal).replace(',', ' ') }} {{ settings.currency }}</span>
+        </div>
+        {% if sale.discount > 0 %}
+        <div class="total-row" style="color: #dc2626;">
+          <span>Remise accordée :</span>
+          <span>- {{ "{:,.0f}".format(sale.discount).replace(',', ' ') }} {{ settings.currency }}</span>
+        </div>
+        {% endif %}
+        <div class="total-row grand-total">
+          <span>NET À PAYER :</span>
+          <span>{{ "{:,.0f}".format(sale.total_amount).replace(',', ' ') }} {{ settings.currency }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Signatures -->
+    <div class="signature-section">
+      <div class="signature-box">
+        Visa / Signature du Client
+      </div>
+      <div class="signature-box">
+        Pour Acquit / La Caisse &amp; Direction
+      </div>
+    </div>
+
+    <!-- Pied de page -->
+    <div class="invoice-footer">
+      <div>{{ settings.receipt_footer }}</div>
+      <div style="margin-top: 4px; font-weight: 600;">{{ settings.company_name }} - Logiciel de Caisse &amp; Stock Professionnel</div>
+    </div>
+  </div>
+</body>
+</html>

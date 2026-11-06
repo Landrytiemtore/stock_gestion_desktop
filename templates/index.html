@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEST-STOCK POS | Logiciel de Vente &amp; Gestion de Stock</title>
+  <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/css/odoo_theme.css">
+</head>
+<body>
+
+  <!-- Odoo Navbar -->
+  <header class="odoo-navbar">
+    <div class="d-flex align-items-center gap-3">
+      <div class="odoo-brand">
+        <!-- SVG Brand Icon -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <path d="M16 10a4 4 0 0 1-8 0"></path>
+        </svg>
+        <span id="nav-brand-title">GEST-STOCK POS</span>
+      </div>
+      <div class="odoo-nav-tabs">
+        <button class="odoo-nav-btn active" onclick="switchView('pos')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          Point de Vente (POS)
+        </button>
+        <button class="odoo-nav-btn" onclick="switchView('products')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          Produits &amp; Stock
+        </button>
+        <button class="odoo-nav-btn" onclick="switchView('sales')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Journal des Ventes
+        </button>
+        <button class="odoo-nav-btn position-relative" onclick="switchView('alerts')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Alertes Stock
+          <span id="nav-alert-badge" class="badge rounded-pill bg-danger d-none" style="font-size:0.7rem;margin-left:4px;">0</span>
+        </button>
+        <button class="odoo-nav-btn" onclick="switchView('customers')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Fichier Clients
+        </button>
+        <button class="odoo-nav-btn" onclick="switchView('closing')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Clôture Caisse (Z)
+        </button>
+      </div>
+    </div>
+    <div>
+      <button class="odoo-nav-btn" onclick="switchView('settings')" title="Paramètres &amp; Papier à en-tête">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        Paramètres
+      </button>
+    </div>
+  </header>
+
+  <main class="app-container">
+
+    <!-- ================= 1. ÉCRAN POS (CAISSE) ================= -->
+    <section id="view-pos" class="view-panel active">
+      <div class="pos-layout">
+        <!-- Colonne Gauche: Produits -->
+        <div class="pos-products-pane">
+          <!-- Barre de Recherche & Filtres -->
+          <div class="pos-controls-bar">
+            <div class="input-group">
+              <span class="input-group-text bg-white border-end-0">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#64748b" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              </span>
+              <input type="text" id="pos-search-input" class="form-control border-start-0" placeholder="Rechercher un produit (nom ou code-barres)..." onkeyup="filterPosProducts()">
+            </div>
+            <button class="btn btn-outline-secondary d-flex align-items-center gap-1 text-nowrap" onclick="openProductModal()" title="Ajouter rapidement un nouveau produit">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Nouveau Produit
+            </button>
+          </div>
+
+          <!-- Onglets Catégories -->
+          <div class="category-tabs">
+            <button class="cat-chip active" onclick="setPosCategory('all', this)">Tous les articles</button>
+            <button class="cat-chip" onclick="setPosCategory('Forte rotation', this)">🔥 Forte Rotation (Best-sellers)</button>
+            <button class="cat-chip" onclick="setPosCategory('Standard', this)">📦 Standard &amp; Nouveaux</button>
+            <button class="cat-chip" onclick="setPosCategory('Faible rotation', this)">🐢 Faible Rotation (Rares)</button>
+          </div>
+
+          <!-- Grille des Produits -->
+          <div id="pos-products-grid" class="products-grid">
+            <!-- Injecté dynamiquement par JS -->
+          </div>
+        </div>
+
+        <!-- Colonne Droite: Panier & Validation de Caisse -->
+        <div class="pos-cart-pane">
+          <!-- Sélection Client -->
+          <div class="cart-header">
+            <div class="cart-customer-box" onclick="openCustomerSelectModal()">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#714B67" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <div class="flex-grow-1 text-truncate" id="cart-customer-display">
+                <span class="text-muted">Client :</span> <strong>Client Passant</strong>
+              </div>
+              <button class="btn btn-sm btn-link text-decoration-none p-0 text-primary" style="font-size:0.8rem;">Changer</button>
+            </div>
+          </div>
+
+          <!-- Liste des Articles au Panier -->
+          <div id="cart-items-container" class="cart-items-list">
+            <div class="text-center text-muted my-5">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#cbd5e1" stroke-width="1.5"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+              <p class="mt-2 mb-0" style="font-size:0.95rem;">Le panier est vide</p>
+              <small class="text-secondary">Cliquez sur une photo de produit pour commencer la vente</small>
+            </div>
+          </div>
+
+          <!-- Totaux & Bouton Payer -->
+          <div class="cart-footer">
+            <div class="summary-row">
+              <span>Articles (<span id="cart-items-count">0</span>)</span>
+              <span id="cart-subtotal-val">0 FCFA</span>
+            </div>
+            <div class="summary-row align-items-center">
+              <span>Remise accordée</span>
+              <div class="d-flex align-items-center gap-1" style="max-width:140px;">
+                <select id="cart-discount-type" class="form-select form-select-sm" style="max-width:90px;" onchange="updateCartTotals()">
+                  <option value="amount">Montant</option>
+                  <option value="percent">%</option>
+                </select>
+                <input type="number" id="cart-discount-input" class="form-control form-control-sm text-end" value="0" min="0" placeholder="Montant remise" aria-label="Montant de la remise globale" oninput="updateCartTotals()">
+              </div>
+            </div>
+            <div class="summary-total">
+              <span class="summary-total-label">TOTAL À PAYER</span>
+              <span class="summary-total-val" id="cart-total-val">0 FCFA</span>
+            </div>
+
+            <div class="cart-actions">
+              <button class="btn btn-clear" onclick="clearCart()" title="Vider le panier">Vider</button>
+              <button class="btn-pay" id="btn-proceed-pay" onclick="openPaymentModal()" disabled>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
+                Paiement &amp; Reçu
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 2. ÉCRAN GESTION DES PRODUITS & STOCK ================= -->
+    <section id="view-products" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div>
+            <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Catalogue Produits &amp; Gestion de Stock</h4>
+            <p class="text-muted mb-0">Importez des photos, calculez vos marges réelles et laissez le logiciel gérer la rotation automatique.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary d-flex align-items-center gap-1" onclick="enableAutoRotationAll()" title="Recalculer et passer tous les produits en rotation automatique basée sur les ventes réelles">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              ✨ Rotation Auto (Tous)
+            </button>
+            <button class="btn btn-primary d-flex align-items-center gap-2" style="background:var(--odoo-primary);border-color:var(--odoo-primary);" onclick="openProductModal()">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Ajouter un Produit
+            </button>
+          </div>
+        </div>
+
+        <div class="odoo-table-wrapper">
+          <div class="p-3 border-bottom bg-white d-flex gap-3">
+            <input type="text" id="product-mgr-search" class="form-control" style="max-width:350px;" placeholder="Rechercher par nom ou catégorie..." onkeyup="filterProductsTable()">
+          </div>
+          <table class="odoo-table" id="products-table">
+            <thead>
+              <tr>
+                <th style="width:70px;">Photo</th>
+                <th>Nom du Produit</th>
+                <th>Catégorie / Rotation</th>
+                <th>Prix d'Achat</th>
+                <th>Transport</th>
+                <th>Coût Revient</th>
+                <th>Prix Vente</th>
+                <th>Marge Nette</th>
+                <th>Stock</th>
+                <th>État</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="products-table-body">
+              <!-- Rempli dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 3. ÉCRAN JOURNAL DES VENTES ================= -->
+    <section id="view-sales" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div>
+            <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Journal des Ventes &amp; Historique</h4>
+            <p class="text-muted mb-0">Consultez, réimprimez des reçus (format ticket ou A4) et gérez les annulations avec motif.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="text" id="sales-search-input" class="form-control" placeholder="Rechercher ticket ou client..." onkeyup="filterSalesTable()">
+          </div>
+        </div>
+
+        <div class="odoo-table-wrapper">
+          <table class="odoo-table">
+            <thead>
+              <tr>
+                <th>N° Ticket</th>
+                <th>Date &amp; Heure</th>
+                <th>Client</th>
+                <th>Mode Règlement</th>
+                <th>Montant Total</th>
+                <th>Bénéfice Réalisé</th>
+                <th>Statut</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sales-table-body">
+              <!-- Rempli dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 4. ÉCRAN ALERTES DE STOCK ================= -->
+    <section id="view-alerts" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="mb-4">
+          <h4 class="fw-bold mb-1 text-danger d-flex align-items-center gap-2">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            Centre d'Alertes Stock &amp; Réapprovisionnement
+          </h4>
+          <p class="text-muted mb-0">Alerte automatique : 20% pour produits à forte rotation et 10% pour produits rares.</p>
+        </div>
+
+        <div class="row" id="alerts-cards-container">
+          <!-- Rempli dynamiquement -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 5. ÉCRAN FICHIER CLIENTS ================= -->
+    <section id="view-customers" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div>
+            <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Base de Données Clients &amp; Fidélité</h4>
+            <p class="text-muted mb-0">Identifiez immédiatement vos meilleurs clients et suivez leur historique d'achat.</p>
+          </div>
+          <button class="btn btn-primary d-flex align-items-center gap-2" style="background:var(--odoo-primary);border-color:var(--odoo-primary);" onclick="openCustomerModal()">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+            Nouveau Client
+          </button>
+        </div>
+
+        <div class="odoo-table-wrapper">
+          <table class="odoo-table">
+            <thead>
+              <tr>
+                <th>Nom &amp; Prénoms</th>
+                <th>Téléphone</th>
+                <th>Nombre de Ventes</th>
+                <th>Total Dépensé (Cumul)</th>
+                <th>Statut Fidélité</th>
+                <th>Date d'Enregistrement</th>
+              </tr>
+            </thead>
+            <tbody id="customers-table-body">
+              <!-- Rempli dynamiquement -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 6. ÉCRAN CLÔTURE DE CAISSE (RAPPORT Z) ================= -->
+    <section id="view-closing" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="mb-4">
+          <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Clôture de Caisse Journalière (Rapport Z)</h4>
+          <p class="text-muted mb-0">Contrôle de fin de journée : vérification des espèces, Mobile Money et du bénéfice net.</p>
+        </div>
+
+        <div class="row g-4 mb-4">
+          <div class="col-md-3">
+            <div class="card p-3 border-0 shadow-sm" style="border-left: 4px solid #3b82f6 !important;">
+              <small class="text-muted text-uppercase fw-semibold">Total Espèces Encaissées</small>
+              <h3 class="fw-bold text-primary mt-2 mb-0" id="closing-cash-val">0 FCFA</h3>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3 border-0 shadow-sm" style="border-left: 4px solid #f59e0b !important;">
+              <small class="text-muted text-uppercase fw-semibold">Total Mobile Money</small>
+              <h3 class="fw-bold text-warning mt-2 mb-0" id="closing-momo-val">0 FCFA</h3>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3 border-0 shadow-sm" style="border-left: 4px solid #10b981 !important;">
+              <small class="text-muted text-uppercase fw-semibold">Chiffre d'Affaires du Jour</small>
+              <h3 class="fw-bold text-success mt-2 mb-0" id="closing-rev-val">0 FCFA</h3>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3 border-0 shadow-sm" style="border-left: 4px solid var(--odoo-primary) !important;">
+              <small class="text-muted text-uppercase fw-semibold">Bénéfice Net Estimé</small>
+              <h3 class="fw-bold mt-2 mb-0" style="color:var(--odoo-primary);" id="closing-profit-val">0 FCFA</h3>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4 border-0 shadow-sm">
+          <h5 class="fw-bold mb-3">Validation de Clôture</h5>
+          <div class="mb-3">
+            <label class="form-label">Notes de caisse ou observations éventuelles</label>
+            <textarea id="closing-notes" class="form-control" rows="2" placeholder="Ex: Caisse vérifiée, monnaie conforme au tiroir..."></textarea>
+          </div>
+          <div class="d-flex gap-3">
+            <button class="btn btn-success fw-bold px-4 py-2" onclick="submitDailyClosing()">
+              Valider la Clôture de la Caisse
+            </button>
+            <button class="btn btn-outline-secondary d-flex align-items-center gap-2" onclick="printClosingReport()">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              Imprimer le Rapport Z
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 7. ÉCRAN PARAMÈTRES & PAPIER À EN-TÊTE ================= -->
+    <section id="view-settings" class="view-panel">
+      <div class="container-fluid p-4" style="max-width:900px;">
+        <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Paramètres de l'Entreprise &amp; Modèle Papier à En-tête</h4>
+        <p class="text-muted mb-4">Ces informations apparaîtront sur les reçus thermiques et sur les factures imprimées au format A4.</p>
+
+        <form id="settings-form" onsubmit="saveSettings(event)" class="card p-4 border-0 shadow-sm">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Nom de l'Entreprise / Boutique</label>
+              <input type="text" name="company_name" id="set-company-name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Slogan ou Activité</label>
+              <input type="text" name="company_slogan" id="set-company-slogan" class="form-control" placeholder="Ex: Vente en gros et détail">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Numéros de Téléphone</label>
+              <input type="text" name="company_phone" id="set-company-phone" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Adresse Géographique / Ville</label>
+              <input type="text" name="company_address" id="set-company-address" class="form-control">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label fw-bold">Mentions Légales (RCCM, NIF, Numéro Fiscal)</label>
+              <input type="text" name="company_nif_rccm" id="set-company-nif" class="form-control" placeholder="Ex: RCCM: CI-ABJ-2024-B-0000 | NIF: 12345678">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Logo de l'entreprise (pour le papier à en-tête)</label>
+              <input type="file" name="logo" class="form-control" accept="image/*" onchange="previewLogo(event)">
+              <div id="logo-preview-box" class="mt-2"></div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Format de reçu par défaut</label>
+              <select name="default_receipt_format" id="set-receipt-fmt" class="form-select">
+                <option value="thermal">Ticket Thermique (Caisse 80mm)</option>
+                <option value="a4">Facture A4 avec Papier à En-tête</option>
+              </select>
+            </div>
+            <div class="col-md-12">
+              <label class="form-label fw-bold">Pied de page du Reçu (Conditions de vente)</label>
+              <textarea name="receipt_footer" id="set-receipt-footer" class="form-control" rows="2"></textarea>
+            </div>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+            <button type="submit" class="btn btn-primary px-4 fw-bold" style="background:var(--odoo-primary);border-color:var(--odoo-primary);">
+              Enregistrer les Paramètres
+            </button>
+            <a href="/api/backup/export" class="btn btn-outline-secondary d-flex align-items-center gap-2">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Sauvegarder la Base de Données (.db)
+            </a>
+          </div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= MODALS ================= -->
+
+  <!-- Modal Paiement Caisse -->
+  <div class="modal fade" id="paymentModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold">Encaissement &amp; Reçu</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="text-center mb-4">
+            <div class="text-muted small text-uppercase fw-semibold">Net à Encaisser</div>
+            <div class="display-6 fw-bold" style="color:var(--odoo-primary);" id="pay-modal-total">0 FCFA</div>
+          </div>
+
+          <!-- Choix Mode de Paiement -->
+          <label class="form-label fw-bold">Mode de Règlement</label>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <input type="radio" class="btn-check" name="paymentMethodRadio" id="pay-method-cash" value="Espèces" checked onchange="togglePaymentInputs()">
+              <label class="btn btn-outline-primary w-100 py-2 fw-semibold" for="pay-method-cash">
+                💵 Espèces (Liquide)
+              </label>
+            </div>
+            <div class="col-6">
+              <input type="radio" class="btn-check" name="paymentMethodRadio" id="pay-method-momo" value="Mobile Money" onchange="togglePaymentInputs()">
+              <label class="btn btn-outline-warning w-100 py-2 fw-semibold text-dark" for="pay-method-momo">
+                📱 Mobile Money
+              </label>
+            </div>
+          </div>
+
+          <!-- Section Espèces -->
+          <div id="cash-payment-section">
+            <label class="form-label fw-bold">Montant Donné par le Client (FCFA)</label>
+            <input type="number" id="pay-amount-received" class="form-control form-control-lg text-end fw-bold" placeholder="0" oninput="calculateChange()">
+            
+            <!-- Boutons de raccourcis billets -->
+            <div class="d-flex gap-2 mt-2" id="quick-cash-buttons">
+              <!-- Rempli dynamiquement -->
+            </div>
+
+            <div class="alert alert-info mt-3 mb-0 d-flex justify-content-between align-items-center">
+              <span class="fw-semibold">Monnaie à Rendre :</span>
+              <span class="fs-5 fw-bold" id="pay-change-returned">0 FCFA</span>
+            </div>
+          </div>
+
+          <!-- Choix Format Reçu -->
+          <div class="mt-4 pt-3 border-top">
+            <label class="form-label fw-bold small text-muted text-uppercase">Format du Reçu d'Impression</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="receiptFormatRadio" id="fmt-thermal" value="thermal" checked>
+                <label class="form-check-label fw-semibold" for="fmt-thermal">Ticket Thermique (80mm)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="receiptFormatRadio" id="fmt-a4" value="a4">
+                <label class="form-check-label fw-semibold" for="fmt-a4">Facture A4 avec Papier à En-tête</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="button" class="btn btn-success fw-bold px-4" onclick="confirmSaleAndPrint()">
+            Valider la Vente &amp; Sortir le Reçu
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Ajout / Modification Produit avec Calcul de Marge -->
+  <div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold" id="productModalTitle">Fiche Produit &amp; Calcul des Marges</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="product-form" onsubmit="saveProduct(event)">
+          <input type="hidden" name="product_id" id="prod-id">
+          <div class="modal-body p-4">
+            <div class="row g-3">
+              <!-- Colonne Image -->
+              <div class="col-md-4 text-center">
+                <label class="form-label fw-bold d-block">Photo du Produit</label>
+                <div class="border rounded p-2 bg-light mb-2" style="height:170px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                  <img id="prod-img-preview" src="/static/img/default_product.svg" style="max-width:100%; max-height:100%; object-fit:contain;">
+                </div>
+                <input type="file" name="image" id="prod-image-input" class="form-control form-control-sm" accept="image/*" onchange="previewProductImage(event)">
+                <small class="text-muted">JPG, PNG, WebP</small>
+              </div>
+
+              <!-- Colonne Informations Générales -->
+              <div class="col-md-8">
+                <div class="mb-3">
+                  <label class="form-label fw-bold">Nom / Désignation de l'Article *</label>
+                  <input type="text" name="name" id="prod-name" class="form-control" placeholder="Ex: Huile Dinor 5L, Sac de Riz 25kg..." required>
+                </div>
+                <div class="row g-2">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold">Catégorie / Rotation</label>
+                    <select name="category" id="prod-category" class="form-select" onchange="updateDefaultThreshold()">
+                      <option value="Auto" selected>✨ Automatique (Calculé par le logiciel selon vos ventes)</option>
+                      <option value="Forte rotation">Forcer : Forte rotation (Best-seller)</option>
+                      <option value="Faible rotation">Forcer : Faible rotation (Rare)</option>
+                      <option value="Standard">Forcer : Standard</option>
+                    </select>
+                    <small class="text-muted d-block mt-1">En mode automatique, le logiciel s'adapte à vos ventes journalières et hebdomadaires.</small>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold">Code-barres (facultatif)</label>
+                    <input type="text" name="barcode" id="prod-barcode" class="form-control" placeholder="Scanner ou taper...">
+                  </div>
+                </div>
+                <div class="row g-2">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold">Quantité en Stock</label>
+                    <input type="number" name="stock_quantity" id="prod-stock" class="form-control" value="10" min="0" required>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold">Seuil d'Alerte (%)</label>
+                    <input type="number" name="alert_threshold_percent" id="prod-threshold" class="form-control" value="20" min="1" max="100">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Calculateur de Rentabilité & Coût de Revient -->
+            <div class="card p-3 mt-3 border">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-bold text-uppercase small text-muted mb-0">Unités de vente / Conditionnements</h6>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addProductUnitRow()">Ajouter une unité</button>
+              </div>
+              <div id="product-units-list"></div>
+              <small class="text-muted d-block mt-2">La première unité est l'unité de base et vaut toujours 1. Le facteur indique combien de pièces contient le conditionnement. Exemple : Pièce 1, Boîte 100, Carton 1000.</small>
+            </div>
+            <div class="card p-3 mt-3 bg-light border">
+              <h6 class="fw-bold text-uppercase small text-muted mb-2">Calcul de Rentabilité &amp; Coût de Revient</h6>
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold">Prix d'Achat (FCFA)</label>
+                  <input type="number" name="purchase_price" id="prod-purchase-price" class="form-control" value="0" min="0" oninput="calculateMargins()" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold">Frais de Transport (FCFA)</label>
+                  <input type="number" name="transport_cost" id="prod-transport-cost" class="form-control" value="0" min="0" oninput="calculateMargins()">
+                </div>
+                <input type="hidden" name="sale_price" id="prod-sale-price" value="0">
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold">Marge Unitaire Nette</label>
+                  <div class="form-control bg-white fw-bold text-success" id="prod-margin-display">0 FCFA</div>
+                </div>
+              </div>
+              <div class="d-flex justify-content-between mt-2 pt-2 border-top small">
+                <span>Coût de revient réel : <strong id="prod-cost-display">0 FCFA</strong></span>
+                <span>Taux de marge : <strong id="prod-margin-pct-display" class="text-primary">0%</strong></span>
+              </div>
+            </div>
+
+          </div>
+          <div class="modal-footer bg-light">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+            <button type="submit" class="btn btn-primary fw-bold px-4" style="background:var(--odoo-primary);border-color:var(--odoo-primary);">Enregistrer le Produit</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Nouveau Client -->
+  <div class="modal fade" id="customerModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold">Ajouter un Client</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="customer-form" onsubmit="saveCustomer(event)">
+          <div class="modal-body p-4">
+            <div class="mb-3">
+              <label class="form-label fw-bold">Nom &amp; Prénoms *</label>
+              <input type="text" id="cust-name" class="form-control" placeholder="Ex: M. Amadou Traoré" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-bold">Numéro de Téléphone *</label>
+              <input type="text" id="cust-phone" class="form-control" placeholder="Ex: 07 12 34 56 78" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Notes éventuelles</label>
+              <input type="text" id="cust-notes" class="form-control" placeholder="Ex: Boutique quartier...">
+            </div>
+          </div>
+          <div class="modal-footer bg-light">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-primary fw-bold" style="background:var(--odoo-primary);border-color:var(--odoo-primary);">Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Sélection Rapide du Client (POS) -->
+  <div class="modal fade" id="customerSelectModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold">Choisir le Client</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-3">
+          <div class="d-flex gap-2 mb-3">
+            <input type="text" id="cust-search-pos" class="form-control" placeholder="Rechercher par nom ou numéro..." onkeyup="filterPosCustomerList()">
+            <button class="btn btn-success d-flex align-items-center gap-1 text-nowrap" onclick="openCustomerModalFromPos()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Nouveau
+            </button>
+          </div>
+          <div class="list-group" id="pos-customer-list" style="max-height:300px; overflow-y:auto;">
+            <!-- Rempli dynamiquement -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Ravitaillement Express -->
+  <div class="modal fade" id="restockModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h6 class="modal-title fw-bold">Ravitaillement de Stock</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-3 text-center">
+          <p class="mb-2 fw-semibold" id="restock-prod-name">Produit</p>
+          <label for="restock-unit-select" class="form-label small text-muted">Unité d'achat :</label>
+          <select id="restock-unit-select" class="form-select text-center fw-bold mb-2">
+            <option value="Pièce">Pièce</option>
+          </select>
+          <label for="restock-qty-input" class="form-label small text-muted">Quantité à ajouter :</label>
+          <input type="number" id="restock-qty-input" class="form-control text-center fs-4 fw-bold mb-2" value="10" min="1">
+          <input type="hidden" id="restock-prod-id">
+        </div>
+        <div class="modal-footer bg-light p-2 justify-content-center">
+          <button type="button" class="btn btn-success fw-bold w-100" onclick="submitRestock()">Ajouter au Stock</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Annulation Vente avec MOTIF OBLIGATOIRE -->
+  <div class="modal fade" id="cancelSaleModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title fw-bold">Annuler la Vente</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <input type="hidden" id="cancel-sale-id">
+          <div class="alert alert-warning mb-3">
+            <strong>Attention :</strong> L'annulation réintégrera automatiquement tous les articles de cette vente dans le stock et déduira le montant du chiffre d'affaires.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Motif Obligatoire de l'annulation *</label>
+            <textarea id="cancel-sale-reason" class="form-control" rows="3" placeholder="Ex: Erreur de saisie caissier, retour marchandise par le client..." required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Abandonner</button>
+          <button type="button" class="btn btn-danger fw-bold" onclick="submitCancelSale()">Confirmer l'Annulation</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Affichage & Impression du Reçu -->
+  <div class="modal fade" id="receiptModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold" id="receipt-modal-title">Reçu de Caisse</h5>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-light fw-bold" onclick="printReceiptFrame()">🖨️ Imprimer</button>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+        </div>
+        <div class="modal-body p-0" style="height:620px;">
+          <iframe id="receipt-iframe" style="width:100%;height:100%;border:none;"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="/static/js/bootstrap.bundle.min.js"></script>
+  <!-- Application JS Logic -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
