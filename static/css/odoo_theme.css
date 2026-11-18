@@ -38,6 +38,31 @@ body {
   padding: 0 16px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   z-index: 1030;
+  overflow-x: hidden;
+}
+
+.odoo-navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.odoo-navbar-actions .odoo-nav-btn {
+  white-space: nowrap;
+}
+
+.odoo-logout-btn {
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  margin-left: 4px;
+}
+
+.odoo-logout-btn:hover {
+  color: #ffffff !important;
+  background: #b91c1c !important;
+  border-color: #b91c1c !important;
 }
 
 .odoo-brand {

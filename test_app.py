@@ -2,6 +2,7 @@ import unittest
 import json
 import os
 import io
+from openpyxl import Workbook
 from app import app, init_db
 
 class TestStockPOS(unittest.TestCase):
@@ -15,6 +16,19 @@ class TestStockPOS(unittest.TestCase):
     def setUp(self):
         app.config['TESTING'] = True
         self.client = app.test_client()
+        login_res = self.client.post(
+            '/api/auth/login',
+            data=json.dumps({'username': 'admin', 'password': 'Admin@123'}),
+            content_type='application/json'
+        )
+        self.assertEqual(login_res.status_code, 200)
+
+    def test_01_logout_invalidates_session(self):
+        response = self.client.post('/api/auth/logout')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['success'])
+        current_user = self.client.get('/api/auth/me')
+        self.assertEqual(current_user.status_code, 401)
 
     def test_01_create_product_and_margin(self):
         # Création d'un produit avec achat=5000, transport=500, vente=7500, stock=20
@@ -235,6 +249,33 @@ class TestStockPOS(unittest.TestCase):
         product = next(p for p in products if p['id'] == product_id)
         self.assertEqual(product['stock_quantity'], 58)
 
+    def test_13_manual_stock_movement(self):
+        create_res = self.client.post('/api/products', data={
+            'name': 'Produit inventaire',
+            'purchase_price': '100',
+            'sale_price': '150',
+            'stock_quantity': '5',
+            'initial_stock': '5',
+        }, content_type='multipart/form-data')
+        self.assertEqual(create_res.status_code, 200)
+        product_id = create_res.get_json()['product_id']
+
+        movement_res = self.client.post('/api/stock/movements', data=json.dumps({
+            'product_id': product_id,
+            'operation_type': 'IN',
+            'quantity': 7,
+            'reason': 'Inventaire',
+        }), content_type='application/json')
+        self.assertEqual(movement_res.status_code, 200)
+        self.assertEqual(movement_res.get_json()['stock_after'], 12)
+
+        movements = self.client.get('/api/stock/movements').get_json()
+        movement = next(m for m in movements if m['product_id'] == product_id and m['reason'] == 'Inventaire')
+        self.assertEqual(movement['operation_type'], 'IN')
+        self.assertEqual(movement['quantity'], 7)
+        self.assertEqual(movement['stock_before'], 5)
+        self.assertEqual(movement['stock_after'], 12)
+
     def test_13_fixed_price_per_piece(self):
         data = {
             'name': 'Produit prix négocié',
@@ -268,6 +309,55 @@ class TestStockPOS(unittest.TestCase):
         self.assertEqual(sale['subtotal'], 1650.0)
         self.assertEqual(sale['total_amount'], 1500.0)
         self.assertEqual(sale['item_discount'], 150.0)
+
+    def test_14_import_products_from_excel(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['nom', 'categorie', 'prix_achat', 'frais_transport', 'prix_vente',
+                      'stock_initial', 'seuil_alerte', 'code_barres',
+                      'conditionnement_1', 'pieces_par_conditionnement_1', 'prix_vente_1'])
+        sheet.append(['Produit Excel', 'Standard', 1000, 100, 1500, 12, 20, 'EXCEL-001',
+                      'Paquet', 6, 8000])
+        excel_data = io.BytesIO()
+        workbook.save(excel_data)
+        excel_data.seek(0)
+        import_payload = excel_data.getvalue()
+
+        preview = self.client.post('/api/products/import/preview', data={
+            'file': (excel_data, 'produits.xlsx')
+        }, content_type='multipart/form-data')
+        self.assertEqual(preview.status_code, 200, preview.get_json())
+        self.assertEqual(preview.get_json()['valid_count'], 1)
+
+        imported = self.client.post('/api/products/import', data={
+            'file': (io.BytesIO(import_payload), 'produits.xlsx')
+        }, content_type='multipart/form-data')
+        self.assertEqual(imported.status_code, 200, imported.get_json())
+        self.assertEqual(imported.get_json()['imported'], 1)
+
+        products = self.client.get('/api/products').get_json()
+        product = next(p for p in products if p['name'] == 'Produit Excel')
+        self.assertEqual(product['stock_quantity'], 12)
+        self.assertEqual(product['units'][0]['name'], 'Pièce')
+        self.assertEqual(product['units'][0]['conversion_factor'], 1)
+        self.assertEqual(product['units'][1]['name'], 'Paquet')
+        self.assertEqual(product['units'][1]['conversion_factor'], 6)
+        self.assertEqual(product['units'][1]['sale_price'], 8000)
+
+    def test_15_delete_user(self):
+        create_res = self.client.post('/api/users', json={
+            'full_name': 'Utilisateur temporaire',
+            'username': 'temp_delete_user',
+            'password': 'MotDePasse123',
+            'role': 'VENDEUR',
+        })
+        self.assertEqual(create_res.status_code, 200, create_res.get_json())
+        user_id = create_res.get_json()['user_id']
+
+        delete_res = self.client.delete(f'/api/users/{user_id}')
+        self.assertEqual(delete_res.status_code, 200, delete_res.get_json())
+        user = next(user for user in self.client.get('/api/users').get_json() if user['id'] == user_id)
+        self.assertEqual(user['active'], 0)
 
 if __name__ == '__main__':
     unittest.main()

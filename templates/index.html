@@ -8,6 +8,19 @@
   <link rel="stylesheet" href="/static/css/odoo_theme.css">
 </head>
 <body>
+  <div id="login-screen" class="d-none" style="position:fixed;inset:0;z-index:9999;background:#f4f6f8;align-items:center;justify-content:center;">
+    <div class="card border-0 shadow-lg p-4" style="width:380px;max-width:92vw;">
+      <h4 class="fw-bold text-center mb-3">Connexion à GEST-STOCK POS</h4>
+      <label for="login-username" class="form-label">Nom d'utilisateur</label>
+      <input id="login-username" class="form-control mb-3" autocomplete="username">
+      <label for="login-password" class="form-label">Mot de passe</label>
+      <input id="login-password" type="password" class="form-control mb-2" autocomplete="current-password">
+      <div id="login-error" class="text-danger small mb-2"></div>
+      <button class="btn btn-primary w-100" onclick="login()">Se connecter</button>
+      <!--<div class="text-muted small text-center mt-3">Compte initial : admin / Admin@123</div> -->
+
+    </div>
+  </div>
 
   <!-- Odoo Navbar -->
   <header class="odoo-navbar">
@@ -26,7 +39,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
           Point de Vente (POS)
         </button>
-        <button class="odoo-nav-btn" onclick="switchView('products')">
+        <button class="odoo-nav-btn" data-role="manager" onclick="switchView('products')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
           Produits &amp; Stock
         </button>
@@ -34,25 +47,40 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           Journal des Ventes
         </button>
-        <button class="odoo-nav-btn position-relative" onclick="switchView('alerts')">
+        <button class="odoo-nav-btn" data-role="manager" onclick="switchView('inventory')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"></path><path d="M7 7h10v4H7z"></path><path d="M7 15h4"></path><path d="M15 15h2"></path></svg>
+          Inventaire
+        </button>
+        <button class="odoo-nav-btn position-relative" data-role="manager" onclick="switchView('alerts')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
           Alertes Stock
           <span id="nav-alert-badge" class="badge rounded-pill bg-danger d-none" style="font-size:0.7rem;margin-left:4px;">0</span>
         </button>
-        <button class="odoo-nav-btn" onclick="switchView('customers')">
+        <button class="odoo-nav-btn" data-role="seller-hidden" onclick="switchView('customers')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Fichier Clients
         </button>
-        <button class="odoo-nav-btn" onclick="switchView('closing')">
+        <button class="odoo-nav-btn" data-role="seller-hidden" onclick="switchView('closing')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           Clôture Caisse (Z)
         </button>
       </div>
     </div>
-    <div>
-      <button class="odoo-nav-btn" onclick="switchView('settings')" title="Paramètres &amp; Papier à en-tête">
+    <div class="odoo-navbar-actions">
+      <button class="odoo-nav-btn" data-role="manager" onclick="switchView('settings')" title="Paramètres &amp; Papier à en-tête">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         Paramètres
+      </button>
+      <button class="odoo-nav-btn" data-role="admin" onclick="switchView('users')">
+        Utilisateurs &amp; Rôles
+      </button>
+      <button class="odoo-nav-btn odoo-logout-btn" onclick="logout()" title="Se déconnecter de l'application">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+          <polyline points="16 17 21 12 16 7"></polyline>
+          <line x1="21" y1="12" x2="9" y2="12"></line>
+        </svg>
+        Déconnexion
       </button>
     </div>
   </header>
@@ -123,10 +151,7 @@
             <div class="summary-row align-items-center">
               <span>Remise accordée</span>
               <div class="d-flex align-items-center gap-1" style="max-width:140px;">
-                <select id="cart-discount-type" class="form-select form-select-sm" style="max-width:90px;" onchange="updateCartTotals()">
-                  <option value="amount">Montant</option>
-                  <option value="percent">%</option>
-                </select>
+                <input type="hidden" id="cart-discount-type" value="amount">
                 <input type="number" id="cart-discount-input" class="form-control form-control-sm text-end" value="0" min="0" placeholder="Montant remise" aria-label="Montant de la remise globale" oninput="updateCartTotals()">
               </div>
             </div>
@@ -156,6 +181,9 @@
             <p class="text-muted mb-0">Importez des photos, calculez vos marges réelles et laissez le logiciel gérer la rotation automatique.</p>
           </div>
           <div class="d-flex gap-2">
+            <button class="btn btn-success d-flex align-items-center gap-2 d-none" data-role="admin" onclick="openProductImportModal()">
+              Importer Excel
+            </button>
             <button class="btn btn-outline-secondary d-flex align-items-center gap-1" onclick="enableAutoRotationAll()" title="Recalculer et passer tous les produits en rotation automatique basée sur les ventes réelles">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
               ✨ Rotation Auto (Tous)
@@ -215,6 +243,7 @@
                 <th>N° Ticket</th>
                 <th>Date &amp; Heure</th>
                 <th>Client</th>
+                <th>Vendeur</th>
                 <th>Mode Règlement</th>
                 <th>Montant Total</th>
                 <th>Bénéfice Réalisé</th>
@@ -225,6 +254,66 @@
             <tbody id="sales-table-body">
               <!-- Rempli dynamiquement -->
             </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= INVENTAIRE / MOUVEMENTS DE STOCK ================= -->
+    <section id="view-inventory" class="view-panel">
+      <div class="container-fluid p-4" id="inventory-print-area">
+        <div class="d-flex justify-content-between align-items-center mb-4 inventory-screen-actions">
+          <div>
+            <h4 class="fw-bold mb-1" style="color:var(--odoo-primary);">Inventaire &amp; Mouvements de Stock</h4>
+            <p class="text-muted mb-0">Enregistrez les entrées et sorties et consultez l'historique en pièces.</p>
+          </div>
+          <button type="button" class="btn btn-outline-primary" onclick="printStockHistory()">
+            🖨️ Imprimer l'état du stock / l'historique
+          </button>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4 inventory-screen-actions">
+          <div class="card-body">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-3">
+                <label for="movement-operation" class="form-label fw-bold">Type d'opération</label>
+                <select id="movement-operation" class="form-select">
+                  <option value="IN">Entrée</option>
+                  <option value="OUT">Sortie</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label for="movement-product" class="form-label fw-bold">Produit</label>
+                <select id="movement-product" class="form-select"></select>
+              </div>
+              <div class="col-md-2">
+                <label for="movement-quantity" class="form-label fw-bold">Quantité</label>
+                <input type="number" id="movement-quantity" class="form-control" min="1" value="1">
+              </div>
+              <div class="col-md-3">
+                <label for="movement-reason" class="form-label fw-bold">Motif</label>
+                <input type="text" id="movement-reason" class="form-control" placeholder="Achat, casse, inventaire...">
+              </div>
+              <div class="col-md-1">
+                <button type="button" class="btn btn-success w-100" onclick="submitStockMovement()">Valider</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="odoo-table-wrapper">
+          <table class="odoo-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type d'opération</th>
+                <th>Nom produit</th>
+                <th>Quantité entrée/sortie</th>
+                <th>Stock restant</th>
+                <th>Motif / Référence</th>
+              </tr>
+            </thead>
+            <tbody id="stock-movement-table-body"></tbody>
           </table>
         </div>
       </div>
@@ -331,6 +420,22 @@
               Imprimer le Rapport Z
             </button>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= UTILISATEURS ================= -->
+    <section id="view-users" class="view-panel">
+      <div class="container-fluid p-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h4 class="fw-bold mb-0" style="color:var(--odoo-primary);">Utilisateurs &amp; Rôles</h4>
+          <button class="btn btn-primary" onclick="openUserModal()">Nouvel utilisateur</button>
+        </div>
+        <div class="odoo-table-wrapper">
+          <table class="odoo-table">
+            <thead><tr><th>Nom</th><th>Utilisateur</th><th>Rôle</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="users-table-body"></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -569,6 +674,34 @@
     </div>
   </div>
 
+  <!-- Import massif de produits (Super Admin) -->
+  <div class="modal fade" id="productImportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header modal-header-odoo">
+          <h5 class="modal-title fw-bold">Importer plusieurs produits depuis Excel</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="alert alert-info">
+            Téléchargez le modèle, complétez une ligne par produit, puis importez le fichier <strong>.xlsx</strong>.
+            Chaque produit importé aura automatiquement l'unité de base <strong>Pièce</strong>.
+            Jusqu'à trois conditionnements peuvent être ajoutés avec leurs facteurs en pièces et leurs prix de vente.
+          </div>
+          <div class="d-flex gap-2 mb-3">
+            <button type="button" class="btn btn-outline-primary" onclick="downloadProductImportTemplate()">Télécharger le modèle Excel</button>
+            <input type="file" id="product-import-file" class="form-control" accept=".xlsx" onchange="previewProductImport(event)">
+          </div>
+          <div id="product-import-preview" class="small text-muted">Aucun fichier sélectionné.</div>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+          <button type="button" id="confirm-product-import" class="btn btn-success" disabled onclick="confirmProductImport()">Importer les produits</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Nouveau Client -->
   <div class="modal fade" id="customerModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
@@ -698,5 +831,24 @@
   <script src="/static/js/bootstrap.bundle.min.js"></script>
   <!-- Application JS Logic -->
   <script src="/static/js/app.js"></script>
+  <style>
+    @media print {
+      body { background: #fff !important; }
+      body * { visibility: hidden !important; }
+      #inventory-print-area, #inventory-print-area * { visibility: visible !important; }
+      #inventory-print-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        padding: 0 !important;
+      }
+      .inventory-screen-actions, .odoo-app-header, .app-container > :not(#view-inventory) {
+        display: none !important;
+      }
+      .odoo-table-wrapper { box-shadow: none !important; border: 1px solid #ccc; }
+      .odoo-table { font-size: 11px; }
+    }
+  </style>
 </body>
 </html>

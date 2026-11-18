@@ -1,6 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime
+from werkzeug.security import generate_password_hash
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'pos_database.db')
 
@@ -131,6 +132,26 @@ def init_db():
     if 'unit_factor' not in sale_item_columns:
         cursor.execute('ALTER TABLE sale_items ADD COLUMN unit_factor INTEGER NOT NULL DEFAULT 1')
 
+    sale_columns = {row['name'] for row in cursor.execute('PRAGMA table_info(sales)').fetchall()}
+    if 'user_id' not in sale_columns:
+        cursor.execute('ALTER TABLE sales ADD COLUMN user_id INTEGER REFERENCES users(id)')
+
+    # Historique des mouvements de stock, en quantité de la plus petite unité.
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS stock_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        operation_type TEXT NOT NULL CHECK(operation_type IN ('IN', 'OUT')),
+        quantity INTEGER NOT NULL,
+        stock_before INTEGER NOT NULL,
+        stock_after INTEGER NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        reference TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+    )
+    ''')
+
     # Table Clôtures Journalières (Rapport Z)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS daily_closings (
@@ -170,6 +191,115 @@ def init_db():
         INSERT INTO settings (id, company_name, company_slogan, company_phone, company_address, company_nif_rccm, receipt_footer, currency, default_receipt_format, company_logo)
         VALUES (1, 'COMMERCE MODERNE', 'Vente & Distribution Directe', '+225 07 12 34 56 78', 'Avenue Principale, Boutique 12', 'RCCM: CI-ABJ-2024-B-1234 | NIF: 10293847', 'Merci pour votre confiance. Les marchandises vendues ne sont ni reprises ni échangées.', 'FCFA', 'thermal', '')
         ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE CHECK(name IN ('SUPER_ADMIN', 'GERANT', 'VENDEUR')),
+        description TEXT NOT NULL
+    )
+    ''')
+    cursor.executemany(
+        'INSERT OR IGNORE INTO roles (name, description) VALUES (?, ?)',
+        [
+            ('SUPER_ADMIN', 'Accès administrateur complet'),
+            ('GERANT', 'Gestion du stock, catalogue et ventes'),
+            ('VENDEUR', 'Enregistrement et consultation de ses ventes'),
+        ]
+    )
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS permissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL
+    )
+    ''')
+    cursor.executemany(
+        'INSERT OR IGNORE INTO permissions (code, description) VALUES (?, ?)',
+        [
+            ('sales.create', 'Créer une vente'),
+            ('sales.view_own', 'Voir ses ventes'),
+            ('sales.view_all', 'Voir toutes les ventes'),
+            ('sales.cancel', 'Annuler une vente'),
+            ('stock.manage', 'Gérer le stock'),
+            ('inventory.manage', 'Gérer les inventaires'),
+            ('catalog.manage', 'Gérer le catalogue'),
+            ('settings.manage', 'Gérer les paramètres'),
+            ('users.manage', 'Gérer les utilisateurs'),
+            ('backup.manage', 'Exporter les sauvegardes'),
+        ]
+    )
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS role_permissions (
+        role_id INTEGER NOT NULL,
+        permission_id INTEGER NOT NULL,
+        PRIMARY KEY (role_id, permission_id),
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+        FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+    )
+    ''')
+    role_permission_codes = {
+        'VENDEUR': ('sales.create', 'sales.view_own'),
+        'GERANT': ('sales.create', 'sales.view_own', 'sales.view_all', 'sales.cancel',
+                    'stock.manage', 'inventory.manage', 'catalog.manage', 'settings.manage'),
+        'SUPER_ADMIN': ('sales.create', 'sales.view_own', 'sales.view_all', 'sales.cancel',
+                        'stock.manage', 'inventory.manage', 'catalog.manage', 'settings.manage',
+                        'users.manage', 'backup.manage'),
+    }
+    for role_name, codes in role_permission_codes.items():
+        role = cursor.execute('SELECT id FROM roles WHERE name = ?', (role_name,)).fetchone()
+        for code in codes:
+            permission = cursor.execute('SELECT id FROM permissions WHERE code = ?', (code,)).fetchone()
+            cursor.execute(
+                'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+                (role['id'], permission['id'])
+            )
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        full_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        role_id INTEGER NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        session_version INTEGER NOT NULL DEFAULT 1,
+        must_change_password INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (role_id) REFERENCES roles(id)
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS security_audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        action TEXT NOT NULL,
+        target_type TEXT DEFAULT '',
+        target_id INTEGER,
+        details TEXT DEFAULT '',
+        ip_address TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+    ''')
+
+    admin = cursor.execute('''
+        SELECT u.id FROM users u
+        JOIN roles r ON r.id = u.role_id
+        WHERE r.name = 'SUPER_ADMIN'
+        LIMIT 1
+    ''').fetchone()
+    if not admin:
+        role = cursor.execute("SELECT id FROM roles WHERE name = 'SUPER_ADMIN'").fetchone()
+        cursor.execute('''
+            INSERT INTO users
+            (username, full_name, password_hash, role_id, active, must_change_password)
+            VALUES (?, ?, ?, ?, 1, 1)
+        ''', ('admin', 'Super Administrateur', generate_password_hash('Admin@123', method='scrypt'), role['id']))
 
     conn.commit()
     conn.close()

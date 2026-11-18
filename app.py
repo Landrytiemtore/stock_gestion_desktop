@@ -3,10 +3,16 @@ import sys
 import shutil
 import sqlite3
 import json
+import io
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, session, g, make_response
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+from secrets import token_urlsafe
 from PIL import Image
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 
 from database import get_db_connection, init_db, DB_PATH
 
@@ -22,11 +28,92 @@ os.makedirs(DATA_DIR, exist_ok=True)
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['UPLOAD_FOLDER'] = UPLOADS_DIR
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
+app.config['SECRET_KEY'] = os.environ.get('POS_SESSION_SECRET', token_urlsafe(48))
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'svg'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def audit_action(action, target_type='', target_id=None, details=''):
+    if not getattr(g, 'user', None):
+        return
+    conn = get_db_connection()
+    conn.execute('''
+        INSERT INTO security_audit_log (user_id, action, target_type, target_id, details, ip_address)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (g.user['id'], action, target_type, target_id, details, request.remote_addr or ''))
+    conn.commit()
+    conn.close()
+
+@app.before_request
+def load_authenticated_user():
+    g.user = None
+    user_id = session.get('user_id')
+    session_version = session.get('session_version')
+    if not user_id:
+        return
+    conn = get_db_connection()
+    user = conn.execute('''
+        SELECT u.*, r.name AS role_name
+        FROM users u
+        JOIN roles r ON r.id = u.role_id
+        WHERE u.id = ? AND u.active = 1
+    ''', (user_id,)).fetchone()
+    conn.close()
+    if user and int(user['session_version']) == session_version:
+        g.user = user
+    else:
+        session.clear()
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not g.user:
+            return jsonify({'error': 'Authentification requise.'}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+def permission_required(*permissions):
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if not g.user:
+                return jsonify({'error': 'Authentification requise.'}), 401
+            conn = get_db_connection()
+            granted = conn.execute('''
+                SELECT COUNT(*)
+                FROM role_permissions rp
+                JOIN permissions p ON p.id = rp.permission_id
+                JOIN roles r ON r.id = rp.role_id
+                WHERE r.name = ? AND p.code IN ({})
+            '''.format(','.join('?' * len(permissions))),
+                (g.user['role_name'], *permissions)).fetchone()[0]
+            conn.close()
+            if not granted:
+                return jsonify({'error': 'Accès refusé.'}), 403
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+@app.before_request
+def protect_mutating_requests():
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return
+    public_paths = {'/api/auth/login'}
+    if request.path in public_paths:
+        return
+    origin = request.headers.get('Origin')
+    if origin:
+        allowed_origins = {
+            'http://127.0.0.1:5055',
+            'http://localhost:5055',
+        }
+        if origin.rstrip('/') not in allowed_origins:
+            return jsonify({'error': 'Origine de requête non autorisée.'}), 403
 
 # Calcul de l'état du stock
 def compute_stock_status(stock_qty, initial_stock, threshold_pct):
@@ -210,6 +297,135 @@ def index():
 def serve_upload(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
+# ================= AUTHENTIFICATION & UTILISATEURS =================
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    data = request.get_json(silent=True) or request.form
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', '')).strip()
+    if not username or not password:
+        return jsonify({'error': 'Nom d’utilisateur et mot de passe obligatoires.'}), 400
+    conn = get_db_connection()
+    user = conn.execute('''
+        SELECT u.*, r.name AS role_name
+        FROM users u JOIN roles r ON r.id = u.role_id
+        WHERE u.username = ? AND u.active = 1
+    ''', (username,)).fetchone()
+    conn.close()
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({'error': 'Identifiants incorrects.'}), 401
+    session.clear()
+    session.permanent = True
+    session['user_id'] = user['id']
+    session['session_version'] = user['session_version']
+    return jsonify({
+        'success': True,
+        'user': {
+            'id': user['id'],
+            'username': user['username'],
+            'full_name': user['full_name'],
+            'role': user['role_name'],
+            'must_change_password': bool(user['must_change_password']),
+        }
+    })
+
+@app.route('/api/auth/logout', methods=['POST'])
+@login_required
+def logout():
+    session.clear()
+    response = make_response(jsonify({'success': True}))
+    response.delete_cookie('session', path='/')
+    return response
+
+@app.route('/api/auth/me')
+@login_required
+def current_user():
+    return jsonify({
+        'id': g.user['id'],
+        'username': g.user['username'],
+        'full_name': g.user['full_name'],
+        'role': g.user['role_name'],
+        'must_change_password': bool(g.user['must_change_password']),
+    })
+
+@app.route('/api/users', methods=['GET'])
+@permission_required('users.manage')
+def get_users():
+    conn = get_db_connection()
+    users = conn.execute('''
+        SELECT u.id, u.username, u.full_name, r.name AS role, u.active,
+               u.must_change_password, u.created_at
+        FROM users u JOIN roles r ON r.id = u.role_id
+        ORDER BY u.full_name
+    ''').fetchall()
+    conn.close()
+    return jsonify([dict(user) for user in users])
+
+@app.route('/api/users', methods=['POST'])
+@permission_required('users.manage')
+def create_user():
+    data = request.get_json(force=True)
+    username = str(data.get('username', '')).strip()
+    full_name = str(data.get('full_name', '')).strip()
+    password = str(data.get('password', '')).strip()
+    role = str(data.get('role', '')).upper()
+    if not username or not full_name or len(password) < 8:
+        return jsonify({'error': 'Nom, utilisateur et mot de passe de 8 caractères minimum requis.'}), 400
+    if role not in ('SUPER_ADMIN', 'GERANT', 'VENDEUR'):
+        return jsonify({'error': 'Rôle invalide.'}), 400
+    conn = get_db_connection()
+    role_row = conn.execute('SELECT id FROM roles WHERE name = ?', (role,)).fetchone()
+    try:
+        cursor = conn.execute('''
+            INSERT INTO users (username, full_name, password_hash, role_id, must_change_password)
+            VALUES (?, ?, ?, ?, 1)
+        ''', (username, full_name, generate_password_hash(password, method='scrypt'), role_row['id']))
+        user_id = cursor.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'Ce nom d’utilisateur existe déjà.'}), 400
+    conn.close()
+    audit_action('USER_CREATED', 'user', user_id, username)
+    return jsonify({'success': True, 'user_id': user_id})
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@permission_required('users.manage')
+def delete_user(user_id):
+    if g.user['role_name'] != 'SUPER_ADMIN':
+        return jsonify({'error': 'Seul le Super Admin peut supprimer un utilisateur.'}), 403
+    if user_id == g.user['id']:
+        return jsonify({'error': 'Vous ne pouvez pas supprimer votre propre compte.'}), 400
+
+    conn = get_db_connection()
+    user = conn.execute('''
+        SELECT u.*, r.name AS role_name
+        FROM users u JOIN roles r ON r.id = u.role_id
+        WHERE u.id = ?
+    ''', (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'Utilisateur introuvable.'}), 404
+
+    if user['role_name'] == 'SUPER_ADMIN':
+        active_admins = conn.execute('''
+            SELECT COUNT(*) FROM users u
+            JOIN roles r ON r.id = u.role_id
+            WHERE r.name = 'SUPER_ADMIN' AND u.active = 1
+        ''').fetchone()[0]
+        if active_admins <= 1:
+            conn.close()
+            return jsonify({'error': 'Impossible de supprimer le dernier Super Admin.'}), 400
+
+    conn.execute(
+        'UPDATE users SET active = 0, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        (user_id,)
+    )
+    conn.commit()
+    conn.close()
+    audit_action('USER_DELETED', 'user', user_id, user['username'])
+    return jsonify({'success': True})
+
 # ================= PRODUITS =================
 def parse_product_units(raw_units, sale_price):
     try:
@@ -251,7 +467,7 @@ def parse_product_units(raw_units, sale_price):
         unit['is_base'] = 0
     return normalized
 
-def sync_product_units(conn, product_id, sale_price, raw_units=None):
+def sync_product_units(conn, product_id, sale_price, raw_units=None, commit=True):
     units = parse_product_units(raw_units, sale_price) if raw_units is not None else [{
         'name': 'Pièce',
         'conversion_factor': 1,
@@ -264,9 +480,11 @@ def sync_product_units(conn, product_id, sale_price, raw_units=None):
             'INSERT INTO product_units (product_id, name, conversion_factor, sale_price, is_base) VALUES (?, ?, ?, ?, ?)',
             (product_id, unit['name'], unit['conversion_factor'], unit['sale_price'], unit['is_base'])
         )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 @app.route('/api/products', methods=['GET'])
+@login_required
 def get_products():
     conn = get_db_connection()
     products_db = conn.execute('SELECT * FROM products ORDER BY name ASC').fetchall()
@@ -299,7 +517,246 @@ def get_products():
     conn.close()
     return jsonify(products)
 
+PRODUCT_IMPORT_COLUMNS = [
+    'nom', 'categorie', 'prix_achat', 'frais_transport', 'prix_vente',
+    'stock_initial', 'seuil_alerte', 'code_barres',
+    'conditionnement_1', 'pieces_par_conditionnement_1', 'prix_vente_1',
+    'conditionnement_2', 'pieces_par_conditionnement_2', 'prix_vente_2',
+    'conditionnement_3', 'pieces_par_conditionnement_3', 'prix_vente_3'
+]
+
+
+def parse_excel_product_units(value, sale_price):
+    units = [{
+        'name': 'Pièce',
+        'conversion_factor': 1,
+        'sale_price': sale_price,
+        'is_base': 1,
+    }]
+    names = set()
+    for number in range(1, 4):
+        unit_name = str(value(f'conditionnement_{number}', '')).strip()
+        if not unit_name:
+            continue
+        if unit_name.casefold() in ('piece', 'pièce') or unit_name.casefold() in names:
+            raise ValueError(f'Conditionnement invalide sur la colonne {number}.')
+        factor = int(float(value(f'pieces_par_conditionnement_{number}', 0) or 0))
+        unit_sale_price = float(value(f'prix_vente_{number}', 0) or 0)
+        if factor <= 0 or unit_sale_price < 0:
+            raise ValueError(f'Facteur ou prix invalide pour le conditionnement {number}.')
+        names.add(unit_name.casefold())
+        units.append({
+            'name': unit_name,
+            'conversion_factor': factor,
+            'sale_price': unit_sale_price,
+            'is_base': 0,
+        })
+    return units
+
+
+@app.route('/api/products/import/template', methods=['GET'])
+@login_required
+def download_product_import_template():
+    if g.user['role_name'] != 'SUPER_ADMIN':
+        return jsonify({'error': 'Import réservé au Super Admin.'}), 403
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Produits'
+    sheet.append(PRODUCT_IMPORT_COLUMNS)
+    sheet.append(['Huile Dinor 5L', 'Standard', 4500, 500, 6000, 10, 20, '123456789',
+                  'Paquet', 6, 6500, 'Carton', 24, 24000, '', '', ''])
+    for column in sheet.columns:
+        column[0].font = Font(bold=True)
+        sheet.column_dimensions[column[0].column_letter].width = 18
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='modele_import_produits.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@app.route('/api/products/import/preview', methods=['POST'])
+@login_required
+def preview_product_import():
+    if g.user['role_name'] != 'SUPER_ADMIN':
+        return jsonify({'error': 'Import réservé au Super Admin.'}), 403
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename.lower().endswith('.xlsx'):
+        return jsonify({'error': 'Sélectionnez un fichier Excel (.xlsx).'}), 400
+    if uploaded.content_length and uploaded.content_length > 5 * 1024 * 1024:
+        return jsonify({'error': 'La taille maximale autorisée est de 5 Mo.'}), 400
+
+    try:
+        workbook = load_workbook(io.BytesIO(uploaded.read()), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+    except Exception:
+        return jsonify({'error': 'Le fichier Excel est illisible ou invalide.'}), 400
+
+    if not rows:
+        return jsonify({'error': 'La feuille Excel est vide.'}), 400
+    headers = [str(value).strip().lower() if value is not None else '' for value in rows[0]]
+    missing = [column for column in PRODUCT_IMPORT_COLUMNS[:1] if column not in headers]
+    if missing:
+        return jsonify({'error': 'Colonne obligatoire manquante : nom.'}), 400
+
+    preview = []
+    errors = []
+    indexes = {header: index for index, header in enumerate(headers)}
+    conn = get_db_connection()
+    existing_barcodes = {
+        row['barcode'] for row in conn.execute(
+            "SELECT barcode FROM products WHERE barcode IS NOT NULL AND barcode != ''"
+        ).fetchall()
+    }
+    conn.close()
+    seen_barcodes = set()
+
+    for line_number, row in enumerate(rows[1:], start=2):
+        if not any(value not in (None, '') for value in row):
+            continue
+
+        def value(column, default=0):
+            index = indexes.get(column)
+            return row[index] if index is not None and index < len(row) else default
+
+        name = str(value('nom', '')).strip()
+        if not name:
+            errors.append({'line': line_number, 'error': 'Le nom est obligatoire.'})
+            continue
+        try:
+            purchase_price = max(0, float(value('prix_achat', 0) or 0))
+            transport_cost = max(0, float(value('frais_transport', 0) or 0))
+            sale_price = max(0, float(value('prix_vente', 0) or 0))
+            stock_initial = max(0, int(float(value('stock_initial', 0) or 0)))
+            threshold = min(100, max(1, int(float(value('seuil_alerte', 20) or 20))))
+        except (TypeError, ValueError):
+            errors.append({'line': line_number, 'error': 'Une valeur numérique est invalide.'})
+            continue
+        try:
+            units = parse_excel_product_units(value, sale_price)
+        except (TypeError, ValueError):
+            errors.append({'line': line_number, 'error': 'Conditionnement, facteur ou prix invalide.'})
+            continue
+
+        barcode = str(value('code_barres', '')).strip()
+        if barcode and (barcode in existing_barcodes or barcode in seen_barcodes):
+            errors.append({'line': line_number, 'error': 'Ce code-barres existe déjà.'})
+            continue
+        if barcode:
+            seen_barcodes.add(barcode)
+
+        preview.append({
+            'name': name,
+            'category': str(value('categorie', 'Standard')).strip() or 'Standard',
+            'purchase_price': purchase_price,
+            'transport_cost': transport_cost,
+            'sale_price': sale_price,
+            'stock_quantity': stock_initial,
+            'initial_stock': stock_initial,
+            'alert_threshold_percent': threshold,
+            'barcode': barcode,
+            'units': units,
+        })
+
+    return jsonify({'products': preview, 'errors': errors, 'valid_count': len(preview)})
+
+
+@app.route('/api/products/import', methods=['POST'])
+@login_required
+def import_products():
+    if g.user['role_name'] != 'SUPER_ADMIN':
+        return jsonify({'error': 'Import réservé au Super Admin.'}), 403
+
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename.lower().endswith('.xlsx'):
+        return jsonify({'error': 'Sélectionnez un fichier Excel (.xlsx).'}), 400
+    try:
+        workbook = load_workbook(io.BytesIO(uploaded.read()), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+    except Exception:
+        return jsonify({'error': 'Le fichier Excel est illisible ou invalide.'}), 400
+    if not rows:
+        return jsonify({'error': 'La feuille Excel est vide.'}), 400
+
+    headers = [str(value).strip().lower() if value is not None else '' for value in rows[0]]
+    indexes = {header: index for index, header in enumerate(headers)}
+    if 'nom' not in indexes:
+        return jsonify({'error': 'Colonne obligatoire manquante : nom.'}), 400
+
+    conn = get_db_connection()
+    imported = 0
+    errors = []
+    seen_barcodes = {
+        row['barcode'] for row in conn.execute(
+            "SELECT barcode FROM products WHERE barcode IS NOT NULL AND barcode != ''"
+        ).fetchall()
+    }
+    try:
+        for line_number, row in enumerate(rows[1:], start=2):
+            if not any(value not in (None, '') for value in row):
+                continue
+
+            def value(column, default=0):
+                index = indexes.get(column)
+                return row[index] if index is not None and index < len(row) else default
+
+            name = str(value('nom', '')).strip()
+            barcode = str(value('code_barres', '')).strip()
+            try:
+                purchase_price = max(0, float(value('prix_achat', 0) or 0))
+                transport_cost = max(0, float(value('frais_transport', 0) or 0))
+                sale_price = max(0, float(value('prix_vente', 0) or 0))
+                stock_quantity = max(0, int(float(value('stock_initial', 0) or 0)))
+                threshold = min(100, max(1, int(float(value('seuil_alerte', 20) or 20))))
+            except (TypeError, ValueError):
+                errors.append({'line': line_number, 'error': 'Une valeur numérique est invalide.'})
+                continue
+            try:
+                units = parse_excel_product_units(value, sale_price)
+            except (TypeError, ValueError):
+                errors.append({'line': line_number, 'error': 'Conditionnement, facteur ou prix invalide.'})
+                continue
+            if not name:
+                errors.append({'line': line_number, 'error': 'Le nom est obligatoire.'})
+                continue
+            if barcode and barcode in seen_barcodes:
+                errors.append({'line': line_number, 'error': 'Ce code-barres existe déjà.'})
+                continue
+
+            category = str(value('categorie', 'Standard')).strip() or 'Standard'
+            cursor = conn.execute('''
+                INSERT INTO products (
+                    name, category, purchase_price, transport_cost, cost_price, sale_price,
+                    stock_quantity, initial_stock, alert_threshold_percent, barcode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                name, category, purchase_price, transport_cost, purchase_price + transport_cost,
+                sale_price, stock_quantity, stock_quantity, threshold, barcode
+            ))
+            sync_product_units(conn, cursor.lastrowid, sale_price, json.dumps(units), commit=False)
+            if barcode:
+                seen_barcodes.add(barcode)
+            imported += 1
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': f"Échec de l'importation : {exc}"}), 500
+    conn.close()
+    return jsonify({'imported': imported, 'errors': errors})
+
+
 @app.route('/api/products', methods=['POST'])
+@permission_required('catalog.manage')
 def add_product():
     name = request.form.get('name', '').strip()
     if not name:
@@ -373,6 +830,7 @@ def add_product():
     return jsonify({'success': True, 'product_id': prod_id, 'message': 'Produit créé avec succès.'})
 
 @app.route('/api/products/auto-classify-all', methods=['POST'])
+@permission_required('catalog.manage')
 def auto_classify_all_products():
     conn = get_db_connection()
     conn.execute("UPDATE products SET category = 'Auto'")
@@ -381,6 +839,7 @@ def auto_classify_all_products():
     return jsonify({'success': True, 'message': 'Tous les produits sont maintenant en mode rotation automatique basée sur les ventes réelles.'})
 
 @app.route('/api/products/<int:id>', methods=['PUT', 'POST'])
+@permission_required('catalog.manage')
 def update_product(id):
     conn = get_db_connection()
     existing = conn.execute('SELECT * FROM products WHERE id = ?', (id,)).fetchone()
@@ -438,6 +897,7 @@ def update_product(id):
     return jsonify({'success': True, 'message': 'Produit mis à jour.'})
 
 @app.route('/api/products/<int:id>/restock', methods=['POST'])
+@permission_required('stock.manage')
 def restock_product(id):
     data = request.get_json(force=True)
     qty = int(data.get('quantity', 0))
@@ -468,6 +928,11 @@ def restock_product(id):
     new_stock = prod['stock_quantity'] + added_stock
     new_initial = max(prod['initial_stock'], new_stock)
     conn.execute('UPDATE products SET stock_quantity = ?, initial_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_stock, new_initial, id))
+    conn.execute('''
+        INSERT INTO stock_movements
+        (product_id, operation_type, quantity, stock_before, stock_after, reason, reference)
+        VALUES (?, 'IN', ?, ?, ?, ?, ?)
+    ''', (id, added_stock, prod['stock_quantity'], new_stock, f"Achat en {unit_name}", f"RAV-{datetime.now().strftime('%Y%m%d%H%M%S')}"))
     conn.commit()
     conn.close()
 
@@ -478,7 +943,61 @@ def restock_product(id):
         'message': f"Ravitaillement effectué (+{added_stock} pièce(s))."
     })
 
+@app.route('/api/stock/movements', methods=['GET'])
+@permission_required('inventory.manage')
+def get_stock_movements():
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT m.*, p.name AS product_name
+        FROM stock_movements m
+        JOIN products p ON p.id = m.product_id
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT 500
+    ''').fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
+@app.route('/api/stock/movements', methods=['POST'])
+@permission_required('inventory.manage')
+def add_stock_movement():
+    data = request.get_json(force=True)
+    product_id = data.get('product_id')
+    operation_type = str(data.get('operation_type', '')).upper()
+    quantity = int(data.get('quantity', 0))
+    reason = str(data.get('reason', '')).strip()
+
+    if operation_type not in ('IN', 'OUT'):
+        return jsonify({'error': "Le type d'opération doit être Entrée ou Sortie."}), 400
+    if quantity <= 0:
+        return jsonify({'error': 'La quantité doit être supérieure à zéro.'}), 400
+
+    conn = get_db_connection()
+    product = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+    if not product:
+        conn.close()
+        return jsonify({'error': 'Produit introuvable.'}), 404
+
+    stock_before = product['stock_quantity']
+    stock_after = stock_before + quantity if operation_type == 'IN' else stock_before - quantity
+    if stock_after < 0:
+        conn.close()
+        return jsonify({'error': 'Le stock ne peut pas devenir négatif.'}), 400
+
+    conn.execute(
+        'UPDATE products SET stock_quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        (stock_after, product_id)
+    )
+    conn.execute('''
+        INSERT INTO stock_movements
+        (product_id, operation_type, quantity, stock_before, stock_after, reason, reference)
+        VALUES (?, ?, ?, ?, ?, ?, 'AJUSTEMENT')
+    ''', (product_id, operation_type, quantity, stock_before, stock_after, reason))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'stock_before': stock_before, 'stock_after': stock_after})
+
 @app.route('/api/products/<int:id>', methods=['DELETE'])
+@permission_required('catalog.manage')
 def delete_product(id):
     conn = get_db_connection()
     conn.execute('DELETE FROM products WHERE id = ?', (id,))
@@ -488,6 +1007,7 @@ def delete_product(id):
 
 # ================= CLIENTS =================
 @app.route('/api/customers', methods=['GET'])
+@login_required
 def get_customers():
     conn = get_db_connection()
     customers = conn.execute('SELECT * FROM customers ORDER BY total_spent DESC, name ASC').fetchall()
@@ -495,6 +1015,7 @@ def get_customers():
     return jsonify([dict(c) for c in customers])
 
 @app.route('/api/customers', methods=['POST'])
+@permission_required('catalog.manage')
 def add_customer():
     data = request.get_json(force=True)
     name = data.get('name', '').strip()
@@ -518,6 +1039,7 @@ def add_customer():
 
 # ================= VENTES & CAISSE (POS) =================
 @app.route('/api/sales', methods=['POST'])
+@permission_required('sales.create')
 def create_sale():
     data = request.get_json(force=True)
     items = data.get('items', [])
@@ -527,7 +1049,7 @@ def create_sale():
     payment_method = data.get('payment_method', 'Espèces')
     amount_received = float(data.get('amount_received', 0))
     global_discount_type = str(data.get('discount_type', 'amount')).lower()
-    if global_discount_type not in ('amount', 'percent'):
+    if global_discount_type != 'amount':
         global_discount_type = 'amount'
     requested_global_discount = max(0.0, float(data.get('discount', 0) or 0))
     customer_id = data.get('customer_id')
@@ -582,14 +1104,13 @@ def create_sale():
             unit_price = float(unit['sale_price'])
             line_subtotal = unit_price * qty
             line_cost = prod['cost_price'] * base_qty
-            line_discount_type = str(item.get('discount_type', 'amount')).lower()
+            line_discount_type = str(item.get('discount_type', 'fixed_price')).lower()
             if line_discount_type not in ('amount', 'percent', 'fixed_price'):
-                line_discount_type = 'amount'
+                line_discount_type = 'fixed_price'
             requested_line_discount = max(0.0, float(item.get('discount', 0) or 0))
             if line_discount_type == 'percent':
-                if requested_line_discount > 100:
-                    raise ValueError(f"La remise de '{prod['name']}' ne peut dépasser 100 %.")
-                line_discount = line_subtotal * requested_line_discount / 100
+                line_discount_type = 'amount'
+                line_discount = min(requested_line_discount, line_subtotal)
             elif line_discount_type == 'fixed_price':
                 line_discount = min(requested_line_discount * qty, line_subtotal)
                 line_net = max(0.0, line_subtotal - line_discount)
@@ -614,6 +1135,7 @@ def create_sale():
                 'quantity': qty,
                 'unit_name': unit['name'],
                 'unit_factor': int(unit['conversion_factor']),
+                'base_quantity': base_qty,
                 'subtotal': line_subtotal,
                 'discount': line_discount,
                 'net_total': line_net,
@@ -644,9 +1166,9 @@ def create_sale():
 
         # Insertion de la vente
         cursor.execute('''
-        INSERT INTO sales (sale_code, customer_id, customer_name, customer_phone, subtotal, discount, total_amount, total_cost, profit, payment_method, amount_received, change_returned, receipt_type, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
-        ''', (sale_code, customer_id, customer_name, customer_phone, subtotal, recorded_discount, total_amount, total_cost, profit, payment_method, amount_received, change_returned, receipt_type))
+        INSERT INTO sales (sale_code, customer_id, customer_name, customer_phone, subtotal, discount, total_amount, total_cost, profit, payment_method, amount_received, change_returned, receipt_type, status, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
+        ''', (sale_code, customer_id, customer_name, customer_phone, subtotal, recorded_discount, total_amount, total_cost, profit, payment_method, amount_received, change_returned, receipt_type, g.user['id']))
 
         sale_id = cursor.lastrowid
 
@@ -656,6 +1178,20 @@ def create_sale():
             INSERT INTO sale_items (sale_id, product_id, product_name, unit_cost, unit_price, quantity, unit_name, unit_factor, subtotal, discount, profit)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (sale_id, it['product_id'], it['product_name'], it['unit_cost'], it['unit_price'], it['quantity'], it['unit_name'], it['unit_factor'], it['net_total'], it['discount'], it['profit']))
+            stock_after = cursor.execute(
+                'SELECT stock_quantity FROM products WHERE id = ?', (it['product_id'],)
+            ).fetchone()[0]
+            cursor.execute('''
+                INSERT INTO stock_movements
+                (product_id, operation_type, quantity, stock_before, stock_after, reason, reference)
+                VALUES (?, 'OUT', ?, ?, ?, 'VENTE', ?)
+            ''', (
+                it['product_id'],
+                it['base_quantity'],
+                stock_after + it['base_quantity'],
+                stock_after,
+                sale_code
+            ))
 
         # Mise à jour cumul client
         if customer_id:
@@ -713,10 +1249,22 @@ def create_sale():
 
 # ================= HISTORIQUE & JOURNAL DES VENTES =================
 @app.route('/api/sales', methods=['GET'])
+@login_required
 def get_sales():
     conn = get_db_connection()
-    query = 'SELECT * FROM sales ORDER BY id DESC LIMIT 200'
-    sales_db = conn.execute(query).fetchall()
+    if g.user['role_name'] == 'VENDEUR':
+        sales_db = conn.execute(
+            '''SELECT sales.*, u.full_name AS seller_name, u.username AS seller_username
+               FROM sales LEFT JOIN users u ON u.id = sales.user_id
+               WHERE sales.user_id = ? ORDER BY sales.id DESC LIMIT 200''',
+            (g.user['id'],)
+        ).fetchall()
+    else:
+        sales_db = conn.execute(
+            '''SELECT sales.*, u.full_name AS seller_name, u.username AS seller_username
+               FROM sales LEFT JOIN users u ON u.id = sales.user_id
+               ORDER BY sales.id DESC LIMIT 200'''
+        ).fetchall()
 
     sales = []
     for s in sales_db:
@@ -729,6 +1277,7 @@ def get_sales():
     return jsonify(sales)
 
 @app.route('/api/sales/<int:id>/receipt')
+@login_required
 def view_receipt(id):
     fmt = request.args.get('format', 'thermal')
     conn = get_db_connection()
@@ -736,6 +1285,9 @@ def view_receipt(id):
     if not sale:
         conn.close()
         return "Reçu non trouvé", 404
+    if g.user['role_name'] == 'VENDEUR' and sale['user_id'] != g.user['id']:
+        conn.close()
+        return "Accès refusé", 403
 
     items = conn.execute('SELECT * FROM sale_items WHERE sale_id = ?', (id,)).fetchall()
     settings = conn.execute('SELECT * FROM settings WHERE id = 1').fetchone()
@@ -745,6 +1297,7 @@ def view_receipt(id):
     return render_template(tmpl, sale=dict(sale), items=[dict(i) for i in items], settings=dict(settings))
 
 @app.route('/api/sales/<int:id>/cancel', methods=['POST'])
+@permission_required('sales.cancel')
 def cancel_sale(id):
     data = request.get_json(force=True)
     reason = data.get('reason', '').strip()
@@ -766,10 +1319,22 @@ def cancel_sale(id):
     # Restituer le stock de chaque article
     items = cursor.execute('SELECT * FROM sale_items WHERE sale_id = ?', (id,)).fetchall()
     for item in items:
+        restored = item['quantity'] * item['unit_factor']
+        stock_before = cursor.execute(
+            'SELECT stock_quantity FROM products WHERE id = ?', (item['product_id'],)
+        ).fetchone()[0]
         cursor.execute(
             'UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            (item['quantity'] * item['unit_factor'], item['product_id'])
+            (restored, item['product_id'])
         )
+        cursor.execute('''
+            INSERT INTO stock_movements
+            (product_id, operation_type, quantity, stock_before, stock_after, reason, reference)
+            VALUES (?, 'IN', ?, ?, ?, ?, ?)
+        ''', (
+            item['product_id'], restored, stock_before, stock_before + restored,
+            'ANNULATION DE VENTE', sale['sale_code']
+        ))
 
     # Si rattaché à un client, déduire du cumul
     if sale['customer_id']:
@@ -796,6 +1361,7 @@ def cancel_sale(id):
 
 # ================= CLÔTURE DE CAISSE (RAPPORT Z) =================
 @app.route('/api/closing/today', methods=['GET'])
+@permission_required('settings.manage')
 def get_today_closing():
     today = datetime.now().strftime('%Y-%m-%d')
     conn = get_db_connection()
@@ -824,6 +1390,7 @@ def get_today_closing():
     return jsonify(res)
 
 @app.route('/api/closing/close', methods=['POST'])
+@permission_required('settings.manage')
 def save_daily_closing():
     today = datetime.now().strftime('%Y-%m-%d')
     data = request.get_json(force=True) if request.data else {}
@@ -865,6 +1432,7 @@ def save_daily_closing():
 
 # ================= ALERTES DE STOCK =================
 @app.route('/api/alerts', methods=['GET'])
+@permission_required('stock.manage')
 def get_alerts():
     conn = get_db_connection()
     products_db = conn.execute('SELECT * FROM products ORDER BY stock_quantity ASC').fetchall()
@@ -892,6 +1460,7 @@ def get_alerts():
 
 # ================= PARAMÈTRES BOUTIQUE & PAPIER À EN-TÊTE =================
 @app.route('/api/settings', methods=['GET'])
+@permission_required('settings.manage')
 def get_settings():
     conn = get_db_connection()
     row = conn.execute('SELECT * FROM settings WHERE id = 1').fetchone()
@@ -899,6 +1468,7 @@ def get_settings():
     return jsonify(dict(row) if row else {})
 
 @app.route('/api/settings', methods=['POST'])
+@permission_required('settings.manage')
 def update_settings():
     company_name = request.form.get('company_name', '').strip()
     company_slogan = request.form.get('company_slogan', '').strip()
@@ -936,6 +1506,7 @@ def update_settings():
 
 # ================= SAUVEGARDE LOCALE =================
 @app.route('/api/backup/export', methods=['GET'])
+@permission_required('backup.manage')
 def export_backup():
     backup_filename = f"backup_pos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
     backup_path = os.path.join(DATA_DIR, backup_filename)

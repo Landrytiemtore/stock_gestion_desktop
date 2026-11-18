@@ -48,7 +48,7 @@ function getCartItemDiscount(item) {
     return { subtotal, itemDiscount, globalDiscount, total: Math.max(0, afterItems - globalDiscount) };
   }
 
-function updateItemDiscount(productId, field, value, unitId = null) {
+function updateItemDiscount(productId, field, value, unitId = null, input = null) {
   const item = state.cart.find(it => it.product_id === productId && Number(it.unit_id) === Number(unitId));
   if (!item) return;
   if (field === 'type') {
@@ -56,24 +56,105 @@ function updateItemDiscount(productId, field, value, unitId = null) {
     if (value === 'fixed_price' && (!item.discount_value || item.discount_value === 0)) {
       item.discount_value = 0;
     }
+    renderCart();
   } else {
     item.discount_value = parseFloat(value) || 0;
+    if (input) {
+      const cartItem = input.closest('.cart-item');
+      const lineTotal = cartItem?.querySelector('.cart-item-total');
+      if (lineTotal) {
+        lineTotal.textContent = formatMoney(getCartItemNet(item));
+      }
+    }
+    updateCartTotals();
   }
-  renderCart();
 }
 
 // --- INITIALISATION AU CHARGEMENT DE LA PAGE ---
 document.addEventListener('DOMContentLoaded', () => {
+  initializeSession();
+});
+
+async function initializeSession() {
+  const response = await fetch('/api/auth/me');
+  if (!response.ok) {
+    showLoginScreen();
+    return;
+  }
+  state.currentUser = await response.json();
+  applyRoleInterface();
   loadSettings();
   loadProducts();
   loadCustomers();
   loadAlerts();
-});
+}
+
+function showLoginScreen() {
+  const screen = document.getElementById('login-screen');
+  screen.classList.remove('d-none');
+  screen.style.display = 'flex';
+}
+
+async function login() {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: document.getElementById('login-username').value.trim(),
+      password: document.getElementById('login-password').value
+    })
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    document.getElementById('login-error').textContent = result.error || 'Connexion impossible.';
+    return;
+  }
+  state.currentUser = result.user;
+  document.getElementById('login-screen').classList.add('d-none');
+  document.getElementById('login-screen').style.display = 'none';
+  applyRoleInterface();
+  loadSettings();
+  loadProducts();
+  loadCustomers();
+  loadAlerts();
+}
+
+async function logout() {
+  if (!window.confirm('Voulez-vous vous déconnecter ?')) return;
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } finally {
+    state.currentUser = null;
+    sessionStorage.clear();
+    window.location.reload();
+  }
+}
+
+function applyRoleInterface() {
+  const role = state.currentUser?.role;
+  const canManage = role === 'GERANT' || role === 'SUPER_ADMIN';
+  document.querySelectorAll('[data-role="manager"]').forEach(element => {
+    element.classList.toggle('d-none', !canManage);
+  });
+  document.querySelectorAll('[data-role="admin"]').forEach(element => {
+    element.classList.toggle('d-none', role !== 'SUPER_ADMIN');
+  });
+  document.querySelectorAll('[data-role="seller-hidden"]').forEach(element => {
+    element.classList.toggle('d-none', role === 'VENDEUR');
+  });
+}
 
 // Formatage FCFA (ex: 15 000 FCFA)
 function formatMoney(amount) {
   if (amount === undefined || amount === null || isNaN(amount)) amount = 0;
   return Math.round(amount).toLocaleString('fr-FR').replace(/\s/g, ' ') + ' ' + (state.settings.currency || 'FCFA');
+}
+
+function formatDateTime(value) {
+  if (!value) return '';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('fr-FR');
 }
 
 // --- NAVIGATION ENTRE VUES ---
@@ -99,12 +180,137 @@ function switchView(viewName) {
     loadProductsTable();
   } else if (viewName === 'sales') {
     loadSalesTable();
+  } else if (viewName === 'inventory') {
+    loadStockMovements();
   } else if (viewName === 'alerts') {
     loadAlertsView();
   } else if (viewName === 'customers') {
     loadCustomersTable();
   } else if (viewName === 'closing') {
     loadClosingData();
+  } else if (viewName === 'users') {
+    loadUsers();
+  }
+}
+
+async function loadUsers() {
+  const response = await fetch('/api/users');
+  if (!response.ok) return;
+  const users = await response.json();
+  document.getElementById('users-table-body').innerHTML = users.map(user => `
+    <tr>
+      <td><strong>${user.full_name}</strong></td>
+      <td>${user.username}</td>
+      <td>${user.role}</td>
+      <td><span class="badge ${user.active ? 'bg-success' : 'bg-secondary'}">${user.active ? 'Actif' : 'Inactif'}</span></td>
+      <td>
+        ${user.active && user.id !== state.currentUser?.id ? `
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${user.id})">
+            Supprimer
+          </button>
+        ` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function deleteUser(userId) {
+  if (!confirm("Supprimer cet utilisateur ?")) return;
+  const response = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+  const result = await response.json().catch(() => ({ error: "Suppression impossible." }));
+  if (!response.ok) {
+    alert(result.error || "Suppression impossible.");
+    return;
+  }
+  await loadUsers();
+}
+
+async function openUserModal() {
+  const fullName = prompt('Nom complet :');
+  if (!fullName) return;
+  const username = prompt('Nom d’utilisateur :');
+  if (!username) return;
+  const password = prompt('Mot de passe (8 caractères minimum) :');
+  if (!password) return;
+  const roleChoice = prompt('Rôle : VENDEUR, GERANT ou SUPER_ADMIN', 'VENDEUR');
+  if (!roleChoice) return;
+  const response = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      full_name: fullName,
+      username,
+      password,
+      role: roleChoice.toUpperCase()
+    })
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    alert(result.error || "Création impossible.");
+    return;
+  }
+  await loadUsers();
+
+  async function loadStockMovements() {
+    const productSelect = document.getElementById('movement-product');
+    if (productSelect && productSelect.options.length === 0) {
+      productSelect.innerHTML = state.products.map(product =>
+        `<option value="${product.id}">${product.name}</option>`
+      ).join('');
+    }
+
+    try {
+      const response = await fetch('/api/stock/movements');
+      const movements = await response.json();
+      const tbody = document.getElementById('stock-movement-table-body');
+      tbody.innerHTML = movements.length ? movements.map(movement => `
+        <tr>
+          <td>${formatDateTime(movement.created_at)}</td>
+          <td><span class="badge ${movement.operation_type === 'IN' ? 'bg-success' : 'bg-danger'}">${movement.operation_type === 'IN' ? 'Entrée' : 'Sortie'}</span></td>
+          <td><strong>${movement.product_name}</strong></td>
+          <td>${movement.operation_type === 'IN' ? '+' : '-'}${movement.quantity}</td>
+          <td><strong>${movement.stock_after}</strong></td>
+          <td>${movement.reason || '-'}${movement.reference ? ` — ${movement.reference}` : ''}</td>
+        </tr>
+      `).join('') : '<tr><td colspan="6" class="text-center text-muted">Aucun mouvement enregistré.</td></tr>';
+    } catch (error) {
+      console.error('Chargement des mouvements impossible:', error);
+    }
+  }
+
+  async function submitStockMovement() {
+    const productId = document.getElementById('movement-product').value;
+    const operationType = document.getElementById('movement-operation').value;
+    const quantity = parseInt(document.getElementById('movement-quantity').value, 10);
+    const reason = document.getElementById('movement-reason').value.trim();
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      alert('Veuillez sélectionner un produit et saisir une quantité valide.');
+      return;
+    }
+
+    const response = await fetch('/api/stock/movements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_id: Number(productId),
+        operation_type: operationType,
+        quantity,
+        reason
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      alert(result.error || "Impossible d'enregistrer le mouvement.");
+      return;
+    }
+    document.getElementById('movement-quantity').value = 1;
+    document.getElementById('movement-reason').value = '';
+    await loadProducts();
+    await loadStockMovements();
+  }
+
+  function printStockHistory() {
+    window.print();
   }
 }
 
@@ -251,7 +457,7 @@ function addToCart(productId, unitId = null) {
       quantity: 1,
       max_stock: product.stock_quantity,
       subtotal: unit.sale_price,
-      discount_type: 'amount',
+      discount_type: 'fixed_price',
       discount_value: 0
     });
   }
@@ -327,11 +533,10 @@ function renderCart() {
       <div class="cart-item-discount d-flex align-items-center gap-1">
         <span class="cart-control-label">Remise :</span>
         <select class="form-select form-select-sm" style="width:78px" onchange="updateItemDiscount(${item.product_id}, 'type', this.value, ${item.unit_id})">
-          <option value="amount" ${item.discount_type === 'amount' ? 'selected' : ''}>Montant</option>
-          <option value="percent" ${item.discount_type === 'percent' ? 'selected' : ''}>%</option>
           <option value="fixed_price" ${item.discount_type === 'fixed_price' ? 'selected' : ''}>Remise / pièce</option>
+          <option value="amount" ${item.discount_type === 'amount' ? 'selected' : ''}>Montant</option>
         </select>
-        <input type="number" class="form-control form-control-sm" style="width:72px" min="0" max="${item.discount_type === 'percent' ? 100 : (item.discount_type === 'fixed_price' ? item.price : item.subtotal)}" value="${item.discount_value}" placeholder="${item.discount_type === 'fixed_price' ? 'Réduction' : 'Montant'}" aria-label="${item.discount_type === 'fixed_price' ? 'Réduction par pièce' : 'Montant de la remise'}" oninput="updateItemDiscount(${item.product_id}, 'value', this.value, ${item.unit_id})">
+        <input type="number" class="form-control form-control-sm" style="width:72px" min="0" max="${item.discount_type === 'percent' ? 100 : (item.discount_type === 'fixed_price' ? item.price : item.subtotal)}" value="${item.discount_value}" placeholder="${item.discount_type === 'fixed_price' ? 'Réduction' : 'Montant'}" aria-label="${item.discount_type === 'fixed_price' ? 'Réduction par pièce' : 'Montant de la remise'}" oninput="updateItemDiscount(${item.product_id}, 'value', this.value, ${item.unit_id}, this)">
       </div>
       <div class="cart-item-total">${formatMoney(getCartItemNet(item))}</div>
       <button class="cart-del-btn" onclick="removeFromCart(${item.product_id}, ${item.unit_id})" title="Supprimer">
@@ -591,6 +796,86 @@ function printReceiptFrame() {
     iframe.contentWindow.print();
   }
 }
+
+  function escapeHtml(value) {
+    const element = document.createElement('div');
+    element.textContent = value == null ? '' : String(value);
+    return element.innerHTML;
+  }
+
+  function openProductImportModal() {
+    document.getElementById('product-import-file').value = '';
+    document.getElementById('product-import-preview').innerHTML = 'Aucun fichier sélectionné.';
+    document.getElementById('confirm-product-import').disabled = true;
+    new bootstrap.Modal(document.getElementById('productImportModal')).show();
+  }
+
+  async function downloadProductImportTemplate() {
+    const response = await fetch('/api/products/import/template');
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({ error: 'Téléchargement impossible.' }));
+      alert(result.error || 'Téléchargement impossible.');
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'modele_import_produits.xlsx';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function previewProductImport(event) {
+    const file = event.target.files[0];
+    const preview = document.getElementById('product-import-preview');
+    const confirmButton = document.getElementById('confirm-product-import');
+    confirmButton.disabled = true;
+    if (!file) return;
+
+    preview.innerHTML = 'Analyse du fichier...';
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch('/api/products/import/preview', { method: 'POST', body: formData });
+    const result = await response.json().catch(() => ({ error: 'Fichier illisible.' }));
+    if (!response.ok) {
+      preview.innerHTML = `<div class="alert alert-danger">${escapeHtml(result.error || 'Importation impossible.')}</div>`;
+      return;
+    }
+
+    const errors = result.errors || [];
+    preview.innerHTML = `
+      <div class="alert ${errors.length ? 'alert-warning' : 'alert-success'}">
+        <strong>${result.valid_count}</strong> produit(s) prêt(s). ${errors.length ? `${errors.length} ligne(s) seront ignorées.` : ''}
+      </div>
+      ${errors.length ? `<ul>${errors.map(error => `<li>Ligne ${error.line} : ${escapeHtml(error.error)}</li>`).join('')}</ul>` : ''}
+    `;
+    confirmButton.disabled = result.valid_count === 0;
+  }
+
+  async function confirmProductImport() {
+    const file = document.getElementById('product-import-file').files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    const button = document.getElementById('confirm-product-import');
+    button.disabled = true;
+    button.innerText = 'Importation...';
+
+    const response = await fetch('/api/products/import', { method: 'POST', body: formData });
+    const result = await response.json().catch(() => ({ error: "Erreur pendant l'importation." }));
+    button.innerText = 'Importer les produits';
+    if (!response.ok) {
+      alert(result.error || "Erreur pendant l'importation.");
+      button.disabled = false;
+      return;
+    }
+
+    const ignored = (result.errors || []).length;
+    alert(`${result.imported} produit(s) importé(s).${ignored ? ` ${ignored} ligne(s) ignorée(s).` : ''}`);
+    bootstrap.Modal.getInstance(document.getElementById('productImportModal'))?.hide();
+    loadProducts();
+  }
 
 // --- FICHE PRODUIT : CALCUL DE MARGES EN TEMPS RÉEL ---
 function openProductModal(prodId = null) {
@@ -974,7 +1259,7 @@ async function loadSalesTable() {
     if (!tbody) return;
 
     if (state.sales.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">Aucune vente enregistrée pour le moment.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="text-center py-4 text-muted">Aucune vente enregistrée pour le moment.</td></tr>`;
       return;
     }
 
@@ -987,6 +1272,7 @@ async function loadSalesTable() {
           <td><strong>${s.sale_code}</strong></td>
           <td>${s.created_at}</td>
           <td>${s.customer_name}${s.customer_phone ? ` <small class="text-muted">(${s.customer_phone})</small>` : ''}</td>
+          <td>${escapeHtml(s.seller_name || s.seller_username || 'Compte supprimé')}</td>
           <td><span class="badge-odoo ${isCash ? 'badge-cash' : 'badge-momo'}">${s.payment_method}</span></td>
           <td class="fw-bold">${formatMoney(s.total_amount)}</td>
           <td class="text-success fw-bold">${isCancelled ? '0 FCFA' : '+' + formatMoney(s.profit)}</td>
